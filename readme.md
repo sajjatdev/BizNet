@@ -8,11 +8,8 @@ A modern, modular Enterprise Resource Planning (ERP) framework built with Python
 - **Python 3.8+** - Primary programming language
 - **Jinja2** - Templating engine for views
 - **PostgreSQL** - Primary database system
-- **SQLAlchemy** - ORM and database abstraction
-- **FastAPI/Flask** - Web framework (choose one)
 
 ### Additional Technologies
-- **Alembic** - Database migrations
 - **Pydantic** - Data validation
 - **Celery** - Background task processing
 - **Redis** - Caching and session storage
