@@ -106,53 +106,77 @@ class BaseModel(metaclass=ModelMeta):
     @classmethod
     def create_table(self):
         """
-        Auto-generate SQL CREATE TABLE statement based on model fields.
-
-        Example Output:
-        ----------------
-        CREATE TABLE IF NOT EXISTS res_user (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            email VARCHAR(255) UNIQUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+        Auto-generate CREATE TABLE and auto-migrate missing columns.
         """
 
-        columns = []
+        table = self._table
 
+        # STEP 1: Ensure table exists (empty table with id)
+        db.Database.execute(
+            f"CREATE TABLE IF NOT EXISTS {table} (id SERIAL PRIMARY KEY);"
+        )
+
+        # STEP 2: Get existing columns from PostgreSQL
+        existing_columns = db.Database.execute(
+            """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = %s
+                """,
+            (table,),
+        )
+
+        existing_columns = {col[0] for col in existing_columns}
+
+        # STEP 3: Loop through fields and add missing ones
         for field_name, field in self._fields.items():
 
-            # Primary key field
-            col_def = (
-                f"{field_name} SERIAL PRIMARY KEY"
-                if field.primary_key
-                else f"{field_name} {field.field_type}"
-            )
+            # Skip if field already exists
+            if field_name in existing_columns:
+                continue
 
-            # Unique constraint
-            if field.unique and not field.primary_key:
-                col_def += " UNIQUE"
+            # -----------------------------
+            # Build COLUMN SQL Definition
+            # -----------------------------
+            if field.primary_key:
+                # Primary key already created above
+                continue
 
-            # NOT NULL constraint
-            if field.required:
-                col_def += " NOT NULL"
+            # 1. Selector Field → VARCHAR + CHECK
+            if isinstance(field, fields.Selector):
+                allowed_values = tuple(str(opt[0]).lower() for opt in field.options)
+                default_val = field.default or allowed_values[0]
 
-            # Default value constraint
-            if field.default:
-                col_def += f" DEFAULT {field.default}"
+                col_def = (
+                    f"{field_name} {field.field_type} "
+                    f"DEFAULT '{default_val}' "
+                    f"CHECK ({field_name} IN {allowed_values})"
+                )
 
-            # Selector value constraint
+            # 2. Other fields
+            else:
+                col_def = f"{field_name} {field.field_type}"
 
-            # System fields are auto timestamped
-            if isinstance(field, fields.DateTime) and field_name in [
-                "created_at",
-                "updated_at",
-            ]:
-                col_def += " DEFAULT CURRENT_TIMESTAMP"
+                # Unique
+                if getattr(field, "unique", False):
+                    col_def += " UNIQUE"
 
-            columns.append(col_def)
+                # Required
+                if getattr(field, "required", False):
+                    col_def += " NOT NULL"
 
-        query = f"CREATE TABLE IF NOT EXISTS {self._table} ({', '.join(columns)});"
+                # Default
+                if field.default is not None:
+                    col_def += f" DEFAULT '{field.default}'"
 
-        # Execute table creation query
-        db.Database.execute(query)
+                # Auto timestamps
+                if isinstance(field, fields.DateTime) and field_name in (
+                    "created_at",
+                    "updated_at",
+                ):
+                    col_def += " DEFAULT CURRENT_TIMESTAMP"
+
+            # STEP 4: Alter table add column
+            alter_sql = f"ALTER TABLE {table} ADD COLUMN {col_def};"
+
+            db.Database.execute(alter_sql)
