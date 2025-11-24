@@ -61,12 +61,8 @@ class Text(Field):
 
 class Selector(Field):
 
-    def __init__(self, options, name=None, default=None, **kwargs):
-        if default is not None and default not in options:
-            raise ValueError(f"Default value `{default}` must be in options {options}")
-        self.options = options
-        super().__init__("VARCHAR(50)", name, **kwargs)
+    def __init__(self, options=None, name=None, default=None, **kwargs):
+        # Fix mutable default argument
+        self.options = options if options is not None else []
 
-    def validate(self, value):
-        if value not in self.options:
-            raise ValueError(f"Value `{value}` is not a valid options {self.options}")
+        super().__init__("VARCHAR(50)", name, **kwargs)
